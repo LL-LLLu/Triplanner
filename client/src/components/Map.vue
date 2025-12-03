@@ -159,8 +159,7 @@ onMounted(() => {
       initialStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
   }
 
-  // @ts-ignore
-  map.value = new mapboxgl.Map({
+  map.value = new (mapboxgl as any).Map({
     container: 'map',
     style: initialStyle,
     projection: 'globe', // 3D Globe!
