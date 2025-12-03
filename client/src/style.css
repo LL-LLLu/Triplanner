@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Fonts */
+  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Poppins', 'sans-serif';
+
+  /* Colors */
+  --color-primary: #171717;
+  --color-secondary: #525252;
+  --color-darkBg: #0a0a0a;
+  --color-darkSurface: #171717;
+}
+
+/* Custom Utilities */
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #d4d4d4; border-radius: 4px; }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #404040; }
+}
+
+/* Base Styles */
+body {
+    @apply antialiased text-primary bg-gray-50 dark:bg-darkBg dark:text-gray-100;
+}
+
+/* Mapbox Popup Dark Mode Styling */
+.mapboxgl-popup {
+  .mapboxgl-popup-content {
+    @apply bg-white text-black rounded-lg shadow-lg text-sm;
+    padding: 10px 15px;
+    border: none;
+  }
+
+  .mapboxgl-popup-close-button {
+    @apply text-gray-400 hover:text-black;
+    font-size: 1.2rem;
+    padding: 0 5px 3px;
+  }
+}
+
+.dark {
+  .mapboxgl-popup {
+    .mapboxgl-popup-content {
+      @apply bg-neutral-800 text-white border border-neutral-700;
+    }
+    .mapboxgl-popup-close-button {
+      @apply text-gray-500 hover:text-white;
+    }
+  }
+}
+
+/* Hide Mapbox Attribution */
+.mapboxgl-ctrl-bottom-left,
+.mapboxgl-ctrl-bottom-right {
+    display: none !important;
+}

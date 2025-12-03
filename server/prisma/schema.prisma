@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "sqlite"
+  // url removed, handled by prisma.config.ts
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  role      String   @default("USER") // "USER" or "ADMIN"
+  status    String   @default("PENDING") // "PENDING" or "ACTIVE"
+  createdAt DateTime @default(now())
+  trips     Trip[]
+}
+
+model Trip {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  destinations String  // Comma separated
+  startDate   DateTime?
+  duration    Int
+  budget      String
+  itinerary   String   // Stored as JSON string
+  createdAt   DateTime @default(now())
+}
