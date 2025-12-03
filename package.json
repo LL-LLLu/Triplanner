@@ -1,0 +1,13 @@
+{
+  "name": "trip-genius-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "build": "cd client && npm run build && cd ../server && npx prisma generate",
+    "start": "echo 'Use Vercel to deploy'"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

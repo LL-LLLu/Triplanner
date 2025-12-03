@@ -159,13 +159,14 @@ onMounted(() => {
       initialStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
   }
 
+  // @ts-ignore
   map.value = new mapboxgl.Map({
     container: 'map',
     style: initialStyle,
     projection: 'globe', // 3D Globe!
     zoom: 1.5,
     center: [30, 15]
-  } as any);
+  });
 
   map.value.on('style.load', () => {
     map.value!.setFog({
