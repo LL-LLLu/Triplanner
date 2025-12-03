@@ -19,8 +19,8 @@ mapboxgl.accessToken = 'pk.eyJ1IjoibGxsbHUiLCJhIjoiY21pbzBuNTJuMDFvNzNkcHoxdnRzZ
 // ^ This is a dummy/invalid token. The map will likely not load tiles without a valid one.
 // Please sign up at mapbox.com (free tier is generous) and paste your public token here.
 
-const map = ref<mapboxgl.Map | null>(null);
-const markers = ref<mapboxgl.Marker[]>([]);
+const map = ref<any>(null);
+const markers = ref<any[]>([]);
 const tripStore = useTripStore();
 const observer = ref<MutationObserver | null>(null);
 const currentStyle = ref<'standard' | 'satellite'>('satellite');
