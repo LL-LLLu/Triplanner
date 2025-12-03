@@ -26,26 +26,40 @@ if (process.env.VERCEL) {
 }
 
 const PORT = process.env.PORT || 3000;
-const SECRET_KEY = process.env.JWT_SECRET || 'secret';
+const SECRET_KEY = process.env.JWT_SECRET;
 
-app.use(cors());
+if (!SECRET_KEY && process.env.NODE_ENV === 'production') {
+    throw new Error("FATAL: JWT_SECRET is not set in production environment.");
+}
+const FINAL_SECRET_KEY = SECRET_KEY || 'dev-secret-do-not-use-in-prod';
+
+// Security: Restrict CORS
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:4173',
+    process.env.FRONTEND_URL // Allow production URL
+].filter(Boolean);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        // In development, allow all localhost
+        if (process.env.NODE_ENV !== 'production') return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    }
+}));
+
 app.use(express.json());
 
-// ... (rest of file) ...
-
-// Start Server (for local dev) or Export (for Vercel)
-if (process.env.VERCEL) {
-    module.exports = app;
-} else {
-    try {
-        app.listen(PORT, () => {
-            console.log(`Server running on http://localhost:${PORT}`);
-        });
-    } catch (e) {
-        console.error("Failed to start server:", e);
-    }
-}
-
+// --- Validation Helpers ---
+const isValidEmail = (email: string) => /\S+@\S+\.\S+/.test(email);
+const sanitizeInput = (str: string) => str.replace(/[^\w\s,.-]/gi, '').trim().substring(0, 100); // Basic sanitization
 
 // --- Types ---
 interface AuthRequest extends Request {
@@ -62,7 +76,7 @@ const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction):
         return;
     }
 
-    jwt.verify(token, SECRET_KEY, (err, user) => {
+    jwt.verify(token, FINAL_SECRET_KEY, (err, user) => {
         if (err) return res.sendStatus(403);
         req.user = user as { id: number; role: string };
         next();
@@ -76,33 +90,17 @@ app.post('/auth/register', async (req: Request, res: Response) => {
     // SECURITY: Registration is CLOSED. Only pre-seeded accounts are allowed.
     res.status(403).json({ error: 'Public registration is closed. Please use a provided test account.' });
     return;
-
-    /* 
-    // Legacy Registration Code (Disabled)
-    const { email, password } = req.body;
-    try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const user = await prisma.user.create({
-            data: {
-                email,
-                password: hashedPassword,
-                status: 'PENDING', // Default status
-            },
-        });
-
-        // Notify Admin
-        console.log(`[ADMIN NOTIFICATION] New user registered: ${email}. Status: PENDING.`);
-
-        res.status(201).json({ message: 'User registered. Please wait for admin approval.' });
-    } catch (error) {
-        res.status(400).json({ error: 'Email already exists or invalid data.' });
-    }
-    */
 });
 
 // Login
 app.post('/auth/login', async (req: Request, res: Response) => {
     const { email, password } = req.body;
+    
+    if (!email || !password || !isValidEmail(email)) {
+        res.status(400).json({ error: 'Invalid email or password format' });
+        return;
+    }
+
     try {
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) {
@@ -121,7 +119,7 @@ app.post('/auth/login', async (req: Request, res: Response) => {
             return;
         }
 
-        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, role: user.role }, FINAL_SECRET_KEY, { expiresIn: '1h' });
         res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
     } catch (error) {
         res.status(500).json({ error: 'Login failed' });
@@ -214,7 +212,7 @@ app.delete('/api/trips/:id', authenticateToken, async (req: AuthRequest, res: Re
 
 // --- AI Planning Route (Gemini) ---
 app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response) => {
-    const { originCity, destinations, days, budget, mustVisit } = req.body;
+    let { originCity, destinations, days, budget, mustVisit } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
@@ -222,25 +220,34 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
         return;
     }
 
-    // Construct Prompt
-    const destString = Array.isArray(destinations) ? destinations.join(", ") : destinations;
-    const mustVisitString = mustVisit && mustVisit.length > 0 ? mustVisit.join(", ") : "None";
-    const originString = originCity || "User's Origin";
+    // Validation & Sanitization
+    if (!destinations || (Array.isArray(destinations) && destinations.length === 0)) {
+         res.status(400).json({ error: 'Destinations are required' });
+         return;
+    }
     
+    // Sanitize inputs to prevent prompt injection
+    const originString = originCity ? sanitizeInput(originCity) : "User's Origin";
+    const destList = Array.isArray(destinations) ? destinations : [destinations];
+    const destString = destList.map((d: string) => sanitizeInput(d)).join(", ");
+    const mustVisitString = Array.isArray(mustVisit) ? mustVisit.map((m: string) => sanitizeInput(m)).join(", ") : "None";
+    const safeBudget = ['Budget', 'Moderate', 'Luxury'].includes(budget) ? budget : 'Moderate';
+    const safeDays = Math.min(Math.max(Number(days) || 3, 1), 14); // Limit days 1-14
+
     const prompt = `
         Role: Expert Travel Planner.
-        Task: Create a detailed ${days}-day trip itinerary specifically for: ${destString}.
+        Task: Create a detailed ${safeDays}-day trip itinerary specifically for: ${destString}.
         Origin: ${originString}.
         
         Requirements:
         1. FLIGHTS: Suggest realistic flight/train routes.
         2. HOTELS: Suggest 3-4 distinct hotel options (different price points/styles) valid for the entire stay.
-        3. DINING: Suggest at least 2 distinct restaurants (Lunch/Dinner) per day. Total of ${days * 2} minimum.
-        4. ACTIVITIES: Detailed itinerary for ${days} days.
+        3. DINING: Suggest at least 2 distinct restaurants (Lunch/Dinner) per day. Total of ${safeDays * 2} minimum.
+        4. ACTIVITIES: Detailed itinerary for ${safeDays} days.
         5. COSTS: Provide "estimatedCost" (number) for EVERY single item.
         
-        Constraint: ALL suggestions MUST be within or very close to ${destString}.
-        User Preferences: Budget: ${budget}, Must-Visit: [${mustVisitString}].
+        Constraint: ALL suggestions MUST be within or very close to ${destString}. Do NOT suggest places in other countries or far away cities unless explicitly asked.
+        User Preferences: Budget: ${safeBudget}, Must-Visit: [${mustVisitString}].
         
         Output Format: JSON ONLY. No markdown.
         {
@@ -254,7 +261,7 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
           "itinerary": [
              { "name": "Place A", "type": "Attraction", "day": 1, "time": "Morning", "city": "...", "coordinates": { "lat": 0, "lng": 0 }, "description": "...", "estimatedCost": 20 }
           ],
-          "costs": { "total": "...", "currency": "USD", "breakdown": { ... } }
+          "costs": { "total": "Calculated Total", "currency": "USD", "breakdown": { "flights": "...", "accommodation": "...", "food": "...", "activities": "...", "transport": "..." } }
         }
     `;
 
@@ -285,7 +292,15 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
     }
 });
 
-// Start Server
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-});
+// Start Server (for local dev) or Export (for Vercel)
+if (process.env.VERCEL) {
+    module.exports = app;
+} else {
+    try {
+        app.listen(PORT, () => {
+            console.log(`Server running on http://localhost:${PORT}`);
+        });
+    } catch (e) {
+        console.error("Failed to start server:", e);
+    }
+}
