@@ -98,9 +98,12 @@ const renderMap = () => {
       el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
       el.style.cursor = 'pointer';
 
+      const popup = new mapboxgl.Popup({ offset: 25 })
+        .setHTML(`<b>${item.name}</b><br>${item.description}`);
+
       const marker = new mapboxgl.Marker(el)
         .setLngLat(lngLat)
-        .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`<b>${item.name}</b><br>${item.description}`))
+        .setPopup(popup)
         .addTo(map.value!);
       
       markers.value.push(marker);
