@@ -19,7 +19,14 @@ let prisma: any; // Type as any because we require() it
 
 if (process.env.VERCEL) {
     // Production: Use standard client (Postgres)
-    prisma = new PrismaClient();
+    console.log("Initializing Prisma Client for Vercel...");
+    prisma = new PrismaClient({
+        datasources: {
+            db: {
+                url: process.env.DATABASE_URL
+            }
+        }
+    });
 } else {
     // Local: Use Better-SQLite3 Adapter (Force local file, ignore env var which might be Postgres)
     const adapter = new PrismaBetterSqlite3({
