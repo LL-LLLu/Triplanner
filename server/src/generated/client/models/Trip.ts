@@ -508,6 +508,7 @@ export type TripCreateOrConnectWithoutUserInput = {
 
 export type TripCreateManyUserInputEnvelope = {
   data: Prisma.TripCreateManyUserInput | Prisma.TripCreateManyUserInput[]
+  skipDuplicates?: boolean
 }
 
 export type TripUpsertWithWhereUniqueWithoutUserInput = {
@@ -1314,6 +1315,7 @@ export type TripCreateManyArgs<ExtArgs extends runtime.Types.Extensions.Internal
    * The data used to create many Trips.
    */
   data: Prisma.TripCreateManyInput | Prisma.TripCreateManyInput[]
+  skipDuplicates?: boolean
 }
 
 /**
@@ -1332,6 +1334,7 @@ export type TripCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions
    * The data used to create many Trips.
    */
   data: Prisma.TripCreateManyInput | Prisma.TripCreateManyInput[]
+  skipDuplicates?: boolean
   /**
    * Choose, which related nodes to fetch as well
    */

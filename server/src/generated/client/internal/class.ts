@@ -19,8 +19,8 @@ const config: runtime.GetPrismaClientConfig = {
   "previewFeatures": [],
   "clientVersion": "7.0.1",
   "engineVersion": "f09f2815f091dbba658cdcd2264306d88bb5bda6",
-  "activeProvider": "sqlite",
-  "inlineSchema": "generator client {\n  provider = \"prisma-client\"\n  output   = \"../src/generated/client\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  // url removed, handled by prisma.config.ts\n}\n\nmodel User {\n  id        Int      @id @default(autoincrement())\n  email     String   @unique\n  password  String\n  role      String   @default(\"USER\") // \"USER\" or \"ADMIN\"\n  status    String   @default(\"PENDING\") // \"PENDING\" or \"ACTIVE\"\n  createdAt DateTime @default(now())\n  trips     Trip[]\n}\n\nmodel Trip {\n  id           Int       @id @default(autoincrement())\n  userId       Int\n  user         User      @relation(fields: [userId], references: [id])\n  destinations String // Comma separated\n  startDate    DateTime?\n  duration     Int\n  budget       String\n  itinerary    String // Stored as JSON string\n  createdAt    DateTime  @default(now())\n}\n",
+  "activeProvider": "postgresql",
+  "inlineSchema": "generator client {\n  provider = \"prisma-client\"\n  output   = \"../src/generated/client\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n}\n\nmodel User {\n  id        Int      @id @default(autoincrement())\n  email     String   @unique\n  password  String\n  role      String   @default(\"USER\") // \"USER\" or \"ADMIN\"\n  status    String   @default(\"PENDING\") // \"PENDING\" or \"ACTIVE\"\n  createdAt DateTime @default(now())\n  trips     Trip[]\n}\n\nmodel Trip {\n  id           Int       @id @default(autoincrement())\n  userId       Int\n  user         User      @relation(fields: [userId], references: [id])\n  destinations String // Comma separated\n  startDate    DateTime?\n  duration     Int\n  budget       String\n  itinerary    String // Stored as JSON string\n  createdAt    DateTime  @default(now())\n}\n",
   "runtimeDataModel": {
     "models": {},
     "enums": {},
@@ -37,10 +37,10 @@ async function decodeBase64AsWasm(wasmBase64: string): Promise<WebAssembly.Modul
 }
 
 config.compilerWasm = {
-  getRuntime: async () => await import("@prisma/client/runtime/query_compiler_bg.sqlite.mjs"),
+  getRuntime: async () => await import("@prisma/client/runtime/query_compiler_bg.postgresql.mjs"),
 
   getQueryCompilerWasmModule: async () => {
-    const { wasm } = await import("@prisma/client/runtime/query_compiler_bg.sqlite.wasm-base64.mjs")
+    const { wasm } = await import("@prisma/client/runtime/query_compiler_bg.postgresql.wasm-base64.mjs")
     return await decodeBase64AsWasm(wasm)
   }
 }
