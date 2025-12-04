@@ -7,6 +7,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require('@prisma/client');
@@ -17,34 +18,76 @@ dotenv.config();
 
 const app = express();
 
+// --- Database Setup ---
 let prisma: any;
-
 if (process.env.VERCEL) {
-    // Production: Use PG Adapter
     console.log("Initializing Prisma Client for Vercel (PG Adapter)...");
     const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
     const adapter = new PrismaPg(pool);
     prisma = new PrismaClient({ adapter });
 } else {
-    // Local: Use Better-SQLite3 Adapter
-    const adapter = new PrismaBetterSqlite3({
-      url: 'file:./dev.db'
-    });
+    const adapter = new PrismaBetterSqlite3({ url: 'file:./dev.db' });
     prisma = new PrismaClient({ adapter });
 }
 
 const PORT = process.env.PORT || 3000;
-const SECRET_KEY = process.env.JWT_SECRET || 'secret'; // Fallback for easier dev/deploy
+const SECRET_KEY = process.env.JWT_SECRET;
 
-app.use(cors()); // Allow ALL origins for now
+// Enforce Secret in Production
+if (!SECRET_KEY && process.env.NODE_ENV === 'production') {
+    throw new Error("FATAL: JWT_SECRET is not set.");
+}
+const FINAL_SECRET_KEY = SECRET_KEY || 'dev-secret-do-not-use-in-prod';
+
+// --- Security: CORS ---
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:4173',
+    process.env.FRONTEND_URL
+].filter(Boolean);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true); // Allow non-browser requests
+        
+        // Allow Localhost in Development
+        if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
+             return callback(null, true);
+        }
+
+        // Allow Vercel Preview/Prod Domains
+        if (origin.endsWith('.vercel.app')) {
+            return callback(null, true);
+        }
+        
+        if (allowedOrigins.indexOf(origin) === -1) {
+            return callback(new Error('CORS policy violation'), false);
+        }
+        return callback(null, true);
+    }
+}));
+
 app.use(express.json());
 
-// --- Types ---
+// --- Validation Schemas ---
+const LoginSchema = z.object({
+    email: z.string().email(),
+    password: z.string().min(1)
+});
+
+const PlanSchema = z.object({
+    destinations: z.union([z.string(), z.array(z.string())]),
+    days: z.number().min(1).max(14).or(z.string().transform(Number)),
+    budget: z.enum(['Budget', 'Moderate', 'Luxury']).optional().default('Moderate'),
+    originCity: z.string().optional(),
+    mustVisit: z.array(z.string()).optional()
+});
+
+// --- Types & Middleware ---
 interface AuthRequest extends Request {
     user?: { id: number; role: string };
 }
 
-// --- Middleware ---
 const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction): void => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -54,7 +97,7 @@ const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction):
         return;
     }
 
-    jwt.verify(token, SECRET_KEY, (err, user) => {
+    jwt.verify(token, FINAL_SECRET_KEY, (err, user) => {
         if (err) return res.sendStatus(403);
         req.user = user as { id: number; role: string };
         next();
@@ -63,27 +106,20 @@ const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction):
 
 // --- Auth Routes ---
 
-// Register
 app.post('/auth/register', async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const user = await prisma.user.create({
-            data: {
-                email,
-                password: hashedPassword,
-                status: 'ACTIVE',
-            },
-        });
-        res.status(201).json({ message: 'User registered successfully.' });
-    } catch (error) {
-        res.status(400).json({ error: 'Email already exists or invalid data.' });
-    }
+    // Security: Registration Closed
+    res.status(403).json({ error: 'Registration is currently closed. Please use a provided test account.' });
 });
 
-// Login
 app.post('/auth/login', async (req: Request, res: Response) => {
-    const { email, password } = req.body;
+    const result = LoginSchema.safeParse(req.body);
+    if (!result.success) {
+        res.status(400).json({ error: 'Invalid email or password format' });
+        return;
+    }
+    
+    const { email, password } = result.data;
+
     try {
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) {
@@ -97,7 +133,12 @@ app.post('/auth/login', async (req: Request, res: Response) => {
             return;
         }
 
-        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+        if (user.status !== 'ACTIVE') {
+            res.status(403).json({ error: 'Account is not active.' });
+            return;
+        }
+
+        const token = jwt.sign({ id: user.id, role: user.role }, FINAL_SECRET_KEY, { expiresIn: '1h' });
         res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
     } catch (error) {
         res.status(500).json({ error: 'Login failed' });
@@ -106,14 +147,12 @@ app.post('/auth/login', async (req: Request, res: Response) => {
 
 // --- Trip Routes ---
 
-// Get All Trips for User
 app.get('/api/trips', authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
         const trips = await prisma.trip.findMany({
             where: { userId: req.user!.id },
             orderBy: { createdAt: 'desc' }
         });
-        // Parse itinerary JSON for client
         const parsedTrips = trips.map((t: any) => ({
             ...t,
             itinerary: JSON.parse(t.itinerary)
@@ -124,7 +163,6 @@ app.get('/api/trips', authenticateToken, async (req: AuthRequest, res: Response)
     }
 });
 
-// Create Trip (Save)
 app.post('/api/trips', authenticateToken, async (req: AuthRequest, res: Response) => {
     const { destinations, startDate, duration, budget, itinerary } = req.body;
     try {
@@ -144,28 +182,34 @@ app.post('/api/trips', authenticateToken, async (req: AuthRequest, res: Response
     }
 });
 
-// Update Trip Itinerary
 app.put('/api/trips/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { itinerary } = req.body;
     try {
+        const existing = await prisma.trip.findUnique({ where: { id: Number(id) }});
+        if (!existing || existing.userId !== req.user!.id) {
+            res.status(403).json({ error: 'Unauthorized' });
+            return;
+        }
+
         const updatedTrip = await prisma.trip.update({
             where: { id: Number(id) },
-            data: {
-                itinerary: JSON.stringify(itinerary)
-            }
+            data: { itinerary: JSON.stringify(itinerary) }
         });
         res.json({ ...updatedTrip, itinerary: JSON.parse(updatedTrip.itinerary) });
     } catch (error) {
-        console.error(error);
         res.status(500).json({ error: 'Failed to update trip' });
     }
 });
 
-// Delete Trip
 app.delete('/api/trips/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     try {
+        const existing = await prisma.trip.findUnique({ where: { id: Number(id) }});
+        if (!existing || existing.userId !== req.user!.id) {
+            res.status(403).json({ error: 'Unauthorized' });
+            return;
+        }
         await prisma.trip.delete({ where: { id: Number(id) } });
         res.json({ message: 'Trip deleted' });
     } catch (error) {
@@ -173,9 +217,15 @@ app.delete('/api/trips/:id', authenticateToken, async (req: AuthRequest, res: Re
     }
 });
 
-// --- AI Planning Route (Gemini) ---
+// --- AI Planning Route ---
 app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response) => {
-    let { originCity, destinations, days, budget, mustVisit } = req.body;
+    const validation = PlanSchema.safeParse(req.body);
+    if (!validation.success) {
+        res.status(400).json({ error: 'Invalid trip parameters', details: validation.error });
+        return;
+    }
+
+    const { originCity, destinations, days, budget, mustVisit } = validation.data;
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
@@ -195,11 +245,11 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
         Requirements:
         1. FLIGHTS: Suggest realistic flight/train routes.
         2. HOTELS: Suggest 3-4 distinct hotel options (different price points/styles) valid for the entire stay.
-        3. DINING: Suggest at least 2 distinct restaurants (Lunch/Dinner) per day. Total of ${days * 2} minimum.
+        3. DINING: Suggest at least 2 distinct restaurants (Lunch/Dinner) per day. Total of ${Number(days) * 2} minimum.
         4. ACTIVITIES: Detailed itinerary for ${days} days.
         5. COSTS: Provide "estimatedCost" (number) for EVERY single item.
         
-        Constraint: ALL suggestions MUST be within or very close to ${destString}.
+        Constraint: ALL suggestions MUST be within or very close to ${destString}. Do NOT suggest places in other countries or far away cities unless explicitly asked.
         User Preferences: Budget: ${budget}, Must-Visit: [${mustVisitString}].
         
         Output Format: JSON ONLY. No markdown.
@@ -214,7 +264,7 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
           "itinerary": [
              { "name": "Place A", "type": "Attraction", "day": 1, "time": "Morning", "city": "...", "coordinates": { "lat": 0, "lng": 0 }, "description": "...", "estimatedCost": 20 }
           ],
-          "costs": { "total": "Calculated Total", "currency": "USD", "breakdown": { "flights": "...", "accommodation": "...", "food": "...", "activities": "...", "transport": "..." } }
+          "costs": { "total": "...", "currency": "USD", "breakdown": { ... } }
         }
     `;
 
@@ -231,11 +281,8 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
             throw new Error(data.error.message);
         }
 
-        // Parse the text response
         let jsonText = data.candidates[0].content.parts[0].text;
-        // Clean markdown
         jsonText = jsonText.replace(/```json/gi, '').replace(/```/g, '').trim();
-        
         const plan = JSON.parse(jsonText);
         res.json(plan);
 
@@ -245,7 +292,7 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
     }
 });
 
-// Start Server (for local dev)
+// Start Server
 if (!process.env.VERCEL) {
     try {
         app.listen(PORT, () => {
@@ -256,5 +303,4 @@ if (!process.env.VERCEL) {
     }
 }
 
-// Export for Vercel
 export default app;
