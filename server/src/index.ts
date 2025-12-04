@@ -42,10 +42,15 @@ const allowedOrigins = [
 
 app.use(cors({
     origin: (origin, callback) => {
+        console.log("Request Origin:", origin); // Debug log
+        
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
-        // In development, allow all localhost
-        if (process.env.NODE_ENV !== 'production') return callback(null, true);
+        
+        // In development, allow ANY origin
+        if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
+             return callback(null, true);
+        }
         
         if (allowedOrigins.indexOf(origin) === -1) {
             const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
