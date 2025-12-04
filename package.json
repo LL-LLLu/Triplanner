@@ -8,6 +8,6 @@
     "start": "echo 'Use Vercel to deploy'"
   },
   "engines": {
-    "node": "24.x"
+    "node": "18.x"
   }
 }
