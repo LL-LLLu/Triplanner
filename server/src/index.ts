@@ -307,7 +307,7 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
 
 // Start Server (for local dev) or Export (for Vercel)
 if (process.env.VERCEL) {
-    module.exports = app;
+    export default app; // ESM export
 } else {
     try {
         app.listen(PORT, () => {

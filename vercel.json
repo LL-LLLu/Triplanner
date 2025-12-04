@@ -5,7 +5,8 @@
       "src": "server/src/index.ts",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["server/node_modules/.prisma/**", "server/prisma/schema.prisma"]
+        "includeFiles": ["server/node_modules/.prisma/**", "server/prisma/schema.prisma"],
+        "module": true
       }
     },
     {
