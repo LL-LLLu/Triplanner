@@ -45,7 +45,7 @@ const FINAL_SECRET_KEY = SECRET_KEY || 'dev-secret-do-not-use-in-prod';
 const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:4173',
-    process.env.FRONTEND_URL // Allow production URL
+    process.env.FRONTEND_URL 
 ].filter(Boolean);
 
 app.use(cors({
@@ -58,6 +58,11 @@ app.use(cors({
         // In development, allow ANY origin
         if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
              return callback(null, true);
+        }
+
+        // Allow Vercel deployments automatically
+        if (origin.endsWith('.vercel.app')) {
+            return callback(null, true);
         }
         
         if (allowedOrigins.indexOf(origin) === -1) {
