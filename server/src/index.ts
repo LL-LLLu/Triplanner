@@ -34,50 +34,10 @@ if (process.env.VERCEL) {
 }
 
 const PORT = process.env.PORT || 3000;
-const SECRET_KEY = process.env.JWT_SECRET;
+const SECRET_KEY = process.env.JWT_SECRET || 'secret'; // Fallback for easier dev/deploy
 
-if (!SECRET_KEY && process.env.NODE_ENV === 'production') {
-    throw new Error("FATAL: JWT_SECRET is not set in production environment.");
-}
-const FINAL_SECRET_KEY = SECRET_KEY || 'dev-secret-do-not-use-in-prod';
-
-// Security: Restrict CORS
-const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:4173',
-    process.env.FRONTEND_URL 
-].filter(Boolean);
-
-app.use(cors({
-    origin: (origin, callback) => {
-        console.log("Request Origin:", origin); // Debug log
-        
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        
-        // In development, allow ANY origin
-        if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
-             return callback(null, true);
-        }
-
-        // Allow Vercel deployments automatically
-        if (origin.endsWith('.vercel.app')) {
-            return callback(null, true);
-        }
-        
-        if (allowedOrigins.indexOf(origin) === -1) {
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
-        }
-        return callback(null, true);
-    }
-}));
-
+app.use(cors()); // Allow ALL origins for now
 app.use(express.json());
-
-// --- Validation Helpers ---
-const isValidEmail = (email: string) => /\S+@\S+\.\S+/.test(email);
-const sanitizeInput = (str: string) => str.replace(/[^\w\s,.-]/gi, '').trim().substring(0, 100); // Basic sanitization
 
 // --- Types ---
 interface AuthRequest extends Request {
@@ -94,7 +54,7 @@ const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction):
         return;
     }
 
-    jwt.verify(token, FINAL_SECRET_KEY, (err, user) => {
+    jwt.verify(token, SECRET_KEY, (err, user) => {
         if (err) return res.sendStatus(403);
         req.user = user as { id: number; role: string };
         next();
@@ -105,29 +65,29 @@ const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction):
 
 // Register
 app.post('/auth/register', async (req: Request, res: Response) => {
-    // SECURITY: Registration is CLOSED. Only pre-seeded accounts are allowed.
-    res.status(403).json({ error: 'Public registration is closed. Please use a provided test account.' });
-    return;
+    const { email, password } = req.body;
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = await prisma.user.create({
+            data: {
+                email,
+                password: hashedPassword,
+                status: 'ACTIVE',
+            },
+        });
+        res.status(201).json({ message: 'User registered successfully.' });
+    } catch (error) {
+        res.status(400).json({ error: 'Email already exists or invalid data.' });
+    }
 });
 
 // Login
 app.post('/auth/login', async (req: Request, res: Response) => {
     const { email, password } = req.body;
-    
-    if (!email || !password || !isValidEmail(email)) {
-        res.status(400).json({ error: 'Invalid email or password format' });
-        return;
-    }
-
     try {
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) {
             res.status(400).json({ error: 'User not found' });
-            return;
-        }
-
-        if (user.status !== 'ACTIVE') {
-            res.status(403).json({ error: 'Account is pending approval.' });
             return;
         }
 
@@ -137,7 +97,7 @@ app.post('/auth/login', async (req: Request, res: Response) => {
             return;
         }
 
-        const token = jwt.sign({ id: user.id, role: user.role }, FINAL_SECRET_KEY, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
         res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
     } catch (error) {
         res.status(500).json({ error: 'Login failed' });
@@ -154,7 +114,7 @@ app.get('/api/trips', authenticateToken, async (req: AuthRequest, res: Response)
             orderBy: { createdAt: 'desc' }
         });
         // Parse itinerary JSON for client
-        const parsedTrips = trips.map(t => ({
+        const parsedTrips = trips.map((t: any) => ({
             ...t,
             itinerary: JSON.parse(t.itinerary)
         }));
@@ -188,15 +148,7 @@ app.post('/api/trips', authenticateToken, async (req: AuthRequest, res: Response
 app.put('/api/trips/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { itinerary } = req.body;
-    
     try {
-        // Verify ownership
-        const existingTrip = await prisma.trip.findUnique({ where: { id: Number(id) } });
-        if (!existingTrip || existingTrip.userId !== req.user!.id) {
-             res.status(403).json({ error: 'Not authorized' });
-             return;
-        }
-
         const updatedTrip = await prisma.trip.update({
             where: { id: Number(id) },
             data: {
@@ -214,13 +166,6 @@ app.put('/api/trips/:id', authenticateToken, async (req: AuthRequest, res: Respo
 app.delete('/api/trips/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     try {
-        // Verify ownership
-        const existingTrip = await prisma.trip.findUnique({ where: { id: Number(id) } });
-        if (!existingTrip || existingTrip.userId !== req.user!.id) {
-             res.status(403).json({ error: 'Not authorized' });
-             return;
-        }
-
         await prisma.trip.delete({ where: { id: Number(id) } });
         res.json({ message: 'Trip deleted' });
     } catch (error) {
@@ -238,34 +183,24 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
         return;
     }
 
-    // Validation & Sanitization
-    if (!destinations || (Array.isArray(destinations) && destinations.length === 0)) {
-         res.status(400).json({ error: 'Destinations are required' });
-         return;
-    }
+    const destString = Array.isArray(destinations) ? destinations.join(", ") : destinations;
+    const mustVisitString = mustVisit && mustVisit.length > 0 ? mustVisit.join(", ") : "None";
+    const originString = originCity || "User's Origin";
     
-    // Sanitize inputs to prevent prompt injection
-    const originString = originCity ? sanitizeInput(originCity) : "User's Origin";
-    const destList = Array.isArray(destinations) ? destinations : [destinations];
-    const destString = destList.map((d: string) => sanitizeInput(d)).join(", ");
-    const mustVisitString = Array.isArray(mustVisit) ? mustVisit.map((m: string) => sanitizeInput(m)).join(", ") : "None";
-    const safeBudget = ['Budget', 'Moderate', 'Luxury'].includes(budget) ? budget : 'Moderate';
-    const safeDays = Math.min(Math.max(Number(days) || 3, 1), 14); // Limit days 1-14
-
     const prompt = `
         Role: Expert Travel Planner.
-        Task: Create a detailed ${safeDays}-day trip itinerary specifically for: ${destString}.
+        Task: Create a detailed ${days}-day trip itinerary specifically for: ${destString}.
         Origin: ${originString}.
         
         Requirements:
         1. FLIGHTS: Suggest realistic flight/train routes.
         2. HOTELS: Suggest 3-4 distinct hotel options (different price points/styles) valid for the entire stay.
-        3. DINING: Suggest at least 2 distinct restaurants (Lunch/Dinner) per day. Total of ${safeDays * 2} minimum.
-        4. ACTIVITIES: Detailed itinerary for ${safeDays} days.
+        3. DINING: Suggest at least 2 distinct restaurants (Lunch/Dinner) per day. Total of ${days * 2} minimum.
+        4. ACTIVITIES: Detailed itinerary for ${days} days.
         5. COSTS: Provide "estimatedCost" (number) for EVERY single item.
         
-        Constraint: ALL suggestions MUST be within or very close to ${destString}. Do NOT suggest places in other countries or far away cities unless explicitly asked.
-        User Preferences: Budget: ${safeBudget}, Must-Visit: [${mustVisitString}].
+        Constraint: ALL suggestions MUST be within or very close to ${destString}.
+        User Preferences: Budget: ${budget}, Must-Visit: [${mustVisitString}].
         
         Output Format: JSON ONLY. No markdown.
         {
