@@ -3,7 +3,7 @@ import axios from 'axios';
 import router from '../router';
 
 // Axios defaults
-axios.defaults.baseURL = 'http://localhost:3000';
+axios.defaults.baseURL = import.meta.env.PROD ? '' : 'http://localhost:3000';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
