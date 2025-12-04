@@ -305,10 +305,8 @@ app.post('/api/plan', authenticateToken, async (req: AuthRequest, res: Response)
     }
 });
 
-// Start Server (for local dev) or Export (for Vercel)
-if (process.env.VERCEL) {
-    export default app; // ESM export
-} else {
+// Start Server (for local dev)
+if (!process.env.VERCEL) {
     try {
         app.listen(PORT, () => {
             console.log(`Server running on http://localhost:${PORT}`);
@@ -317,3 +315,6 @@ if (process.env.VERCEL) {
         console.error("Failed to start server:", e);
     }
 }
+
+// Export for Vercel
+export default app;
