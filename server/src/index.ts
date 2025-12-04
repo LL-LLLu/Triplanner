@@ -1,10 +1,13 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { createRequire } from 'module';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+
+const require = createRequire(import.meta.url);
+const { PrismaClient } = require('@prisma/client');
 
 console.log("Starting server initialization...");
 
@@ -12,15 +15,15 @@ dotenv.config();
 
 const app = express();
 
-let prisma: PrismaClient;
+let prisma: any; // Type as any because we require() it
 
 if (process.env.VERCEL) {
     // Production: Use standard client (Postgres)
     prisma = new PrismaClient();
 } else {
-    // Local: Use Better-SQLite3 Adapter
+    // Local: Use Better-SQLite3 Adapter (Force local file, ignore env var which might be Postgres)
     const adapter = new PrismaBetterSqlite3({
-      url: process.env.DATABASE_URL || 'file:./dev.db'
+      url: 'file:./dev.db'
     });
     prisma = new PrismaClient({ adapter });
 }

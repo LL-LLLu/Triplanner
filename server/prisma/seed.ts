@@ -1,7 +1,10 @@
-import { PrismaClient } from '@prisma/client';
+import { createRequire } from 'module';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+
+const require = createRequire(import.meta.url);
+const { PrismaClient } = require('@prisma/client');
 
 dotenv.config();
 
